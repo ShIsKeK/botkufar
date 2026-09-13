@@ -1,4 +1,4 @@
-```yaml
+
 name: Kufar bot
 
 on:
@@ -37,4 +37,3 @@ jobs:
           git add kufar_data.json
           git diff --cached --quiet || git commit -m "update bot data"
           git push
-```
