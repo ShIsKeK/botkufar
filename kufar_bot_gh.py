@@ -41,9 +41,9 @@ REGION_IDS = {
 HELP_TEXT = (
     "👋 Я слежу за новыми объявлениями на Kufar.\n\n"
     "Команды:\n"
-    "/add запрос | цена | регион — добавить поиск\n"
+    "/add запрос | цена | регион | исключить | продавец — добавить поиск\n"
     "примеры:\n"
-    "  /add iphone 15 | 500-1500 | минск\n"
+    "  /add iphone 15 | 500-1500 | минск | куплю,обмен | частное\n"
     "  /add диван | 50-200\n"
     "  /add велосипед\n"
     "/addurl &lt;url&gt; — поиск по точной ссылке из DevTools\n"
@@ -101,7 +101,7 @@ def send_ad(chat_id, ad):
 
 
 # ---------- kufar ----------
-def build_search_url(query, pmin, pmax, rgn):
+def build_search_url(query, pmin, pmax, rgn, cmp=None):
     params = {"query": query, "sort": "lst.d", "size": "30", "lang": "ru", "cur": "BYR"}
     if pmin is not None or pmax is not None:
         lo = (pmin or 0) * 100
@@ -109,6 +109,8 @@ def build_search_url(query, pmin, pmax, rgn):
         params["prc"] = f"r:{lo},{hi}"
     if rgn is not None:
         params["rgn"] = str(rgn)
+    if cmp is not None:
+        params["cmp"] = str(cmp)  # 0 = частное лицо, 1 = компания
     return f"{KUFAR_API}?{urlencode(params)}"
 
 
@@ -126,9 +128,15 @@ def format_price(ad):
 
 
 # ---------- логика поисков ----------
-def add_search(chat_id, name, url):
+def is_excluded(search, ad):
+    """True, если в заголовке объявления есть слово-исключение."""
+    text = (ad.get("subject") or "").lower()
+    return any(w in text for w in search.get("exclude", []))
+
+
+def add_search(chat_id, name, url, exclude=None):
     searches = get_searches(chat_id)
-    search = {"name": name, "url": url, "seen": []}
+    search = {"name": name, "url": url, "seen": [], "exclude": exclude or []}
     searches.append(search)
     send_text(chat_id, f"✅ Поиск «{name}» добавлен. Смотрю текущую выдачу…")
     try:
@@ -137,12 +145,22 @@ def add_search(chat_id, name, url):
         send_text(chat_id, f"⚠️ Kufar не ответил ({e}). Поиск сохранён, проверю позже.")
         return
     search["seen"] = [a["ad_id"] for a in ads if a.get("ad_id")]
-    for ad in ads[:3]:
-        send_ad(chat_id, ad)
+    shown = 0
+    for ad in ads:
+        if shown >= 3:
+            break
+        if is_excluded(search, ad):
+            continue
+        try:
+            send_ad(chat_id, ad)
+            shown += 1
+        except Exception as e:
+            print("ошибка отправки превью:", e)
         time.sleep(1)
     send_text(chat_id,
-              f"☝️ Это 3 свежих из {len(ads)} найденных — проверьте, что выдача совпадает "
-              f"с ожиданиями. Дальше буду присылать только новые. /list — список поисков")
+              f"☝️ Это свежие объявления из {len(ads)} найденных — проверьте, что выдача "
+              f"совпадает с ожиданиями. Дальше буду присылать только новые. "
+              f"/list — список поисков")
 
 
 def check_chat(chat_id):
@@ -157,9 +175,15 @@ def check_chat(chat_id):
         seen = set(s.get("seen", []))
         fresh = [a for a in ads if a.get("ad_id") and a["ad_id"] not in seen]
         for ad in reversed(fresh[:MAX_NEW_PER_SEARCH]):  # от старых к новым
-            send_ad(chat_id, ad)
-            print(f"[{chat_id}/{s['name']}] новое: {ad.get('subject')}")
-            sent += 1
+            if is_excluded(s, ad):
+                print(f"[{chat_id}/{s['name']}] пропущено (исключение): {ad.get('subject')}")
+                continue
+            try:
+                send_ad(chat_id, ad)
+                print(f"[{chat_id}/{s['name']}] новое: {ad.get('subject')}")
+                sent += 1
+            except Exception as e:
+                print(f"[{chat_id}/{s['name']}] ошибка отправки: {e}")
             time.sleep(1)
         seen |= {a["ad_id"] for a in ads if a.get("ad_id")}
         s["seen"] = list(seen)[-300:]
@@ -176,11 +200,12 @@ def cmd_add(chat_id, arg):
     parts = [p.strip() for p in arg.split("|")]
     query = parts[0] if parts and parts[0] else ""
     if not query:
-        send_text(chat_id, "Формат: /add запрос | цена | регион\n"
-                           "Пример: /add iphone 15 | 500-1500 | минск")
+        send_text(chat_id, "Формат: /add запрос | цена | регион | исключить | продавец\n"
+                           "Пример: /add iphone 15 | 500-1500 | минск | куплю,обмен | частное")
         return
     pmin = pmax = None
     rgn = None
+    exclude = []
     if len(parts) > 1 and parts[1]:
         m = re.fullmatch(r"(\d*)-(\d*)", parts[1].replace(" ", ""))
         if not m or not (m.group(1) or m.group(2)):
@@ -198,7 +223,19 @@ def cmd_add(chat_id, arg):
             send_text(chat_id, "Регион не понял. Варианты: минск, минская, брестская, "
                                "витебская, гомельская, гродненская, могилёвская, вся")
             return
-    add_search(chat_id, query, build_search_url(query, pmin, pmax, rgn))
+    if len(parts) > 3 and parts[3]:
+        exclude = [w.strip().lower() for w in parts[3].split(",") if w.strip()]
+    cmp = None
+    if len(parts) > 4 and parts[4]:
+        seller = parts[4].lower()
+        if seller in ("частное", "частник", "частное лицо", "частные"):
+            cmp = 0
+        elif seller in ("компания", "компании"):
+            cmp = 1
+        else:
+            send_text(chat_id, "Тип продавца не понял. Варианты: частное или компания")
+            return
+    add_search(chat_id, query, build_search_url(query, pmin, pmax, rgn, cmp), exclude)
 
 
 def cmd_list(chat_id):
@@ -206,7 +243,12 @@ def cmd_list(chat_id):
     if not searches:
         send_text(chat_id, "Пока нет ни одного поиска. /add — добавить")
         return
-    lines = [f"{i + 1}. {s['name']}" for i, s in enumerate(searches)]
+    lines = []
+    for i, s in enumerate(searches):
+        line = f"{i + 1}. {s['name']}"
+        if s.get("exclude"):
+            line += f" (кроме: {', '.join(s['exclude'])})"
+        lines.append(line)
     send_text(chat_id, "Ваши поиски:\n" + "\n".join(lines) + "\n\n/del N — удалить")
 
 
@@ -281,10 +323,15 @@ def process_updates():
 def main():
     if not BOT_TOKEN:
         raise SystemExit("Не задан BOT_TOKEN! Добавьте его в GitHub Secrets.")
-    n = process_updates()
-    print(f"обработано команд: {n}")
-    check_all()
-    save_data()
+    try:
+        n = process_updates()
+        print(f"обработано команд: {n}")
+        check_all()
+    except Exception as e:
+        # не роняем весь запуск из-за разовой ошибки — просто пишем в лог
+        print("ошибка во время работы:", e)
+    finally:
+        save_data()
     print("готово")
 
 
