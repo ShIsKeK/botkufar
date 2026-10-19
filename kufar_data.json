@@ -6,7 +6,6 @@
      "name": "macbook air",
      "url": "https://api.kufar.by/search-api/v2/search/rendered-paginated?query=macbook+air&sort=lst.d&size=30&lang=ru&cur=BYR&prc=r%3A0%2C200000&rgn=7&cmp=0",
      "seen": [
-      1087536144,
       1088662548,
       1087564822,
       1088695324,
@@ -253,6 +252,7 @@
       1086686010,
       1089156927,
       1088993088,
+      1090053952,
       1089872709,
       1086505805,
       1085727579,
@@ -323,9 +323,9 @@
      "name": "honda civic",
      "url": "https://api.kufar.by/search-api/v2/search/rendered-paginated?query=honda+civic&sort=lst.d&size=30&lang=ru&cur=BYR&prc=r%3A200000%2C9999999900",
      "seen": [
-      1087678486,
-      1087678487,
       84477974,
+      1087678487,
+      1087678486,
       1087678489,
       1087678490,
       1087678491,
