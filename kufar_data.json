@@ -323,7 +323,6 @@
      "name": "honda civic",
      "url": "https://api.kufar.by/search-api/v2/search/rendered-paginated?query=honda+civic&sort=lst.d&size=30&lang=ru&cur=BYR&prc=r%3A200000%2C9999999900",
      "seen": [
-      1087678501,
       1087678503,
       1087678504,
       1087678507,
@@ -377,6 +376,7 @@
       1088342176,
       1087110305,
       1085446306,
+      1090309280,
       1087155375,
       1085837490,
       1084773555,
